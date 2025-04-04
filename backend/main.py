@@ -2,7 +2,6 @@ import os
 
 import dotenv
 import httpx
-from custom_routes import custom_router
 from dependencies.authorization import AuthDependency
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
