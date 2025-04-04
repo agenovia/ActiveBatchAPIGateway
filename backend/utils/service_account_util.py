@@ -15,7 +15,7 @@ def replace_superuser_key(key: str = "SUPERUSER_KEY", file_path="backend\\.env")
 
     value = generate_service_account_key()
 
-    # read the current .env file
+    # find entry in current .env file
     with open(file_path, "r") as file:
         for line in file:
             if line.startswith(f"{key}="):
