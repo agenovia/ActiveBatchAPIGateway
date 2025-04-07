@@ -25,7 +25,6 @@ class Passthrough:
             real_url += f"?{request.query_params}"
 
         logger.debug("Real URL: %s", real_url)
-        print(real_url)
 
         try:
             # extract body and headers

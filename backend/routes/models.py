@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,6 +48,7 @@ class JobLogsList(Keyed):
     """
 
     # WARNING: ActiveBatch V14 date parsing starts at 2020 for whatever reason
+    # what this means is that you cannot choose a date starting before 2020-01-01
     startDate: Optional[str] = Field(
         default_factory=lambda: datetime(year=2020, month=1, day=1).isoformat()
     )
@@ -72,3 +73,26 @@ class JobLogsList(Keyed):
         assert self.pageSize <= 100, "pageSize cannot be greater than 100"
 
         self.templateId = self.templateId
+
+
+class MirrorActionRequest(BaseModel):
+    path: str
+    status: str
+
+
+# Model for individual response data
+class MirrorActionDetailResponse(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    request: MirrorActionRequest
+    response: Union[None, Dict[str, Any]]  # holds the actual response content or data
+
+    def model_post_init(self, context: Any):
+        # Ensure that the response is either None or a dictionary
+        if self.response is None:
+            self.response = "Change successful"
+
+
+# Model for the final aggregated response
+class MirrorActionBatchResponse(BaseModel):
+    message: str
+    results: List[MirrorActionDetailResponse]

@@ -8,7 +8,14 @@ from typing import Annotated, List
 
 import dotenv
 from fastapi import APIRouter, HTTPException, Query, Request
-from routes.models import EnableDependenciesModel, JobLogsList, MirrorJobStatusModel
+from routes.models import (
+    EnableDependenciesModel,
+    JobLogsList,
+    MirrorActionBatchResponse,
+    MirrorActionDetailResponse,
+    MirrorActionRequest,
+    MirrorJobStatusModel,
+)
 from utils.passthrough import Passthrough
 
 router = APIRouter()
@@ -28,15 +35,20 @@ async def mirror_job_status(objects: List[MirrorJobStatusModel], request: Reques
         - job_paths: List of job paths to mirror.
     """
     # rebuild the request
-    auth = request.headers.get("authorization")
-    headers = {"content-type": "application/json", "authorization": auth}
+    headers = {
+        "content-type": "application/json",
+        "authorization": request.headers.get("authorization"),
+    }
+    all_responses = []
+    contains_errors = False
     for obj in objects:
         # ensure path ends with '$' as per ActiveBatch requirement
-        # see Introduction section of https://fcvmpdactbapp01.hpsj.com/activebatch/api/help/index
+        # see Introduction section of https://fcvmpdactbapp01.hpsj.com/activebatch/api/help/index#section/Introduction
         path = obj.path if obj.path.endswith("$") else f"{obj.path}$"
-        status = "enabled" if obj.enabled else "disabled"
 
-        # create a dynamic request body based on `path` and `status`
+        # create a dynamic request body based on `path` and `status` per ActiveBatch API
+        # see https://fcvmpdactbapp01.hpsj.com/activebatch/api/help/index#operation/Objects_SetStatus
+        status = "enabled" if obj.enabled else "disabled"
         body = {"value": status}
 
         # custom receive function to provide the dynamic body
@@ -57,8 +69,24 @@ async def mirror_job_status(objects: List[MirrorJobStatusModel], request: Reques
             method="PUT", path=f"objects/{path}/status", request=dynamic_request
         )
 
-        # handle response if needed
-        # print(response)
+        if response.status_code != 200:
+            contains_errors = True
+
+        # append each response detail to the list
+        all_responses.append(
+            MirrorActionDetailResponse(
+                request=MirrorActionRequest(path=obj.path, status=status),
+                # extract response and convert to a JSON-serializable object
+                response=json.loads(response.body.decode("utf-8")),
+            )
+        )
+
+    msg = (
+        "Mirroring completed with errors"
+        if contains_errors
+        else "Mirroring completed without errors"
+    )
+    return MirrorActionBatchResponse(results=all_responses, message=msg)
 
 
 # 2. given an ID or a path, get the logs of that job's instances
