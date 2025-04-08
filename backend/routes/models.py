@@ -23,6 +23,11 @@ class Unkeyed(BaseModel):
     model_config = config
 
 
+class ActiveBatchPathStatusModel(BaseModel):
+    path: str
+    enabled: bool
+
+
 class MirrorJobStatusModel(BaseModel):
     """
     Model for mirroring job status.
@@ -30,8 +35,8 @@ class MirrorJobStatusModel(BaseModel):
 
     # when performing mirror operations, we cannot use IDs so we must pass the paths
     model_config = config
-    path: str
-    enabled: bool
+    definitions: List[ActiveBatchPathStatusModel]
+    auditFields: Optional[List[Dict[str, str]]]
 
 
 class EnableDependenciesModel(Keyed):
@@ -82,17 +87,21 @@ class MirrorActionRequest(BaseModel):
 
 # Model for individual response data
 class MirrorActionDetailResponse(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
     request: MirrorActionRequest
     response: Union[None, Dict[str, Any]]  # holds the actual response content or data
-
-    def model_post_init(self, context: Any):
-        # Ensure that the response is either None or a dictionary
-        if self.response is None:
-            self.response = "Change successful"
+    succeeded: bool = True
 
 
 # Model for the final aggregated response
 class MirrorActionBatchResponse(BaseModel):
+    timestamp: datetime = Field(default=None)
+    batch_id: str = Field(default=None)
     message: str
+    count: int = Field(default=0)
     results: List[MirrorActionDetailResponse]
+    _timestamp = datetime.now()
+
+    def model_post_init(self, __context):
+        self.timestamp = self._timestamp
+        self.batch_id = self._timestamp.strftime("%Y%m%d%H%M%S%f")
+        self.count = len(self.results)

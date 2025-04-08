@@ -27,7 +27,7 @@ passthrough = Passthrough(rest_server=rest_server)
 
 # 1. given a json with path and enable status, match each path's enabled/disabled status to V14 and turn it on
 @router.post("/mirror")
-async def mirror_job_status(objects: List[MirrorJobStatusModel], request: Request):
+async def mirror_job_status(objects: MirrorJobStatusModel, request: Request):
     """
     Mirror the job status to V14.
 
@@ -40,8 +40,8 @@ async def mirror_job_status(objects: List[MirrorJobStatusModel], request: Reques
         "authorization": request.headers.get("authorization"),
     }
     all_responses = []
-    contains_errors = False
-    for obj in objects:
+    errors = 0
+    for obj in objects.definitions:
         # ensure path ends with '$' as per ActiveBatch requirement
         # see Introduction section of https://fcvmpdactbapp01.hpsj.com/activebatch/api/help/index#section/Introduction
         path = obj.path if obj.path.endswith("$") else f"{obj.path}$"
@@ -49,7 +49,10 @@ async def mirror_job_status(objects: List[MirrorJobStatusModel], request: Reques
         # create a dynamic request body based on `path` and `status` per ActiveBatch API
         # see https://fcvmpdactbapp01.hpsj.com/activebatch/api/help/index#operation/Objects_SetStatus
         status = "enabled" if obj.enabled else "disabled"
-        body = {"value": status}
+        body = {
+            "value": status,
+            "auditFields": objects.auditFields,
+        }
 
         # custom receive function to provide the dynamic body
         async def custom_receive():
@@ -70,7 +73,7 @@ async def mirror_job_status(objects: List[MirrorJobStatusModel], request: Reques
         )
 
         if response.status_code != 200:
-            contains_errors = True
+            errors += 1
 
         # append each response detail to the list
         all_responses.append(
@@ -78,14 +81,11 @@ async def mirror_job_status(objects: List[MirrorJobStatusModel], request: Reques
                 request=MirrorActionRequest(path=obj.path, status=status),
                 # extract response and convert to a JSON-serializable object
                 response=json.loads(response.body.decode("utf-8")),
+                succeeded=response.status_code == 200,
             )
         )
 
-    msg = (
-        "Mirroring completed with errors"
-        if contains_errors
-        else "Mirroring completed without errors"
-    )
+    msg = f"Mirroring completed with {errors} error(s)"
     return MirrorActionBatchResponse(results=all_responses, message=msg)
 
 
