@@ -11,10 +11,10 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from routes.models import (
     EnableDependenciesModel,
     JobLogsList,
-    MirrorActionBatchResponse,
-    MirrorActionDetailResponse,
-    MirrorActionRequest,
-    MirrorJobStatusModel,
+    MirrorJobDefinitionsBatchRequest,
+    MirrorJobDefinitionsBatchResponse,
+    MirrorJobDefinitionsItemRequest,
+    MirrorJobDefinitionsItemResponse,
 )
 from utils.passthrough import Passthrough
 
@@ -27,12 +27,11 @@ passthrough = Passthrough(rest_server=rest_server)
 
 # 1. given a json with path and enable status, match each path's enabled/disabled status to V14 and turn it on
 @router.post("/mirror")
-async def mirror_job_status(objects: MirrorJobStatusModel, request: Request):
+async def mirror_job_status(
+    objects: MirrorJobDefinitionsBatchRequest, request: Request
+):
     """
     Mirror the job status to V14.
-
-    Parameters:
-        - job_paths: List of job paths to mirror.
     """
     # rebuild the request
     headers = {
@@ -77,16 +76,22 @@ async def mirror_job_status(objects: MirrorJobStatusModel, request: Request):
 
         # append each response detail to the list
         all_responses.append(
-            MirrorActionDetailResponse(
-                request=MirrorActionRequest(path=obj.path, status=status),
+            MirrorJobDefinitionsItemResponse(
+                request=MirrorJobDefinitionsItemRequest(path=obj.path, status=status),
                 # extract response and convert to a JSON-serializable object
                 response=json.loads(response.body.decode("utf-8")),
                 succeeded=response.status_code == 200,
             )
         )
 
-    msg = f"Mirroring completed with {errors} error(s)"
-    return MirrorActionBatchResponse(results=all_responses, message=msg)
+    batch_response = MirrorJobDefinitionsBatchResponse(
+        results=all_responses, message=f"Mirroring completed with {errors} error(s)"
+    )
+
+    with open(rf"..\logs\{batch_response.batch_id}.json", "w") as f:
+        f.write(batch_response.model_dump_json(indent=4))
+
+    return batch_response
 
 
 # 2. given an ID or a path, get the logs of that job's instances
