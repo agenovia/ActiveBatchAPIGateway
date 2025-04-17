@@ -3,24 +3,26 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-config = ConfigDict(extra="forbid")
+
+class BaseConfig(BaseModel):
+    # disallow extra fields in the model
+    model_config = ConfigDict(extra="forbid")
 
 
-class Keyed(BaseModel):
+class Keyed(BaseConfig):
     """
     Model for any method requiring a key (path or id) attribute.
     """
 
-    model_config = config
     templateId: Union[str, int]
 
 
-class Unkeyed(BaseModel):
+class Unkeyed(BaseConfig):
     """
     Unkeyed objects are not expected to have a key attribute.
     """
 
-    model_config = config
+    ...
 
 
 class EnableDependenciesModel(Keyed):
@@ -64,32 +66,32 @@ class JobLogsList(Keyed):
         self.templateId = self.templateId
 
 
-class MirrorJobDefinitionsItemRequest(BaseModel):
+class MirrorJobDefinitionsItemRequest(BaseConfig):
     path: str
-    status: str
+    enabled: bool
 
 
-class MirrorJobDefinitionsBatchRequest(BaseModel):
+class MirrorJobDefinitionsBatchRequest(BaseConfig):
     """
     Model for mirroring job status.
     """
 
     # when performing mirror operations, we cannot use IDs so we must pass the paths
-    model_config = config
     definitions: List[MirrorJobDefinitionsItemRequest]
     auditFields: Optional[List[Dict[str, str]]]
 
 
 # Model for individual response data
-class MirrorJobDefinitionsItemResponse(BaseModel):
+class MirrorJobDefinitionsItemResponse(BaseConfig):
     request: MirrorJobDefinitionsItemRequest
     response: Union[None, Dict[str, Any]]  # holds the actual response content or data
     succeeded: bool = True
 
 
 # Model for the final aggregated response
-class MirrorJobDefinitionsBatchResponse(BaseModel):
+class MirrorJobDefinitionsBatchResponse(BaseConfig):
     timestamp: datetime = Field(default=None)
+    # _timestamp: datetime = Field(default_factory=datetime.now, serialization_alias="timestamp")
     batch_id: str = Field(default=None)
     message: str
     count: int = Field(default=0)
@@ -98,5 +100,5 @@ class MirrorJobDefinitionsBatchResponse(BaseModel):
 
     def model_post_init(self, __context):
         self.timestamp = self._timestamp
-        self.batch_id = self._timestamp.strftime("%Y%m%d%H%M%S%f")
+        self.batch_id = self._timestamp.strftime(r"%Y%m%d%H%M%S%f")
         self.count = len(self.results)

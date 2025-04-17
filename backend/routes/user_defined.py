@@ -77,17 +77,25 @@ async def mirror_job_status(
         # append each response detail to the list
         all_responses.append(
             MirrorJobDefinitionsItemResponse(
-                request=MirrorJobDefinitionsItemRequest(path=obj.path, status=status),
-                # extract response and convert to a JSON-serializable object
-                response=json.loads(response.body.decode("utf-8")),
+                request=MirrorJobDefinitionsItemRequest(
+                    path=obj.path, enabled=obj.enabled
+                ),
+                response=json.loads(
+                    # extract response and convert to a JSON-serializable object
+                    response.body.decode("utf-8")
+                ),
                 succeeded=response.status_code == 200,
             )
         )
 
+    # construct a batch response object
+    summary = f"Mirroring completed with {errors} error(s)"
     batch_response = MirrorJobDefinitionsBatchResponse(
-        results=all_responses, message=f"Mirroring completed with {errors} error(s)"
+        results=all_responses, message=summary
     )
 
+    # write the batch response to a log file using the precalculated batch id
+    # TODO(@agenovia) this is a placeholder; use proper logging library
     with open(rf"..\logs\{batch_response.batch_id}.json", "w") as f:
         f.write(batch_response.model_dump_json(indent=4))
 
