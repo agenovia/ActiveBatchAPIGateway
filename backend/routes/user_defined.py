@@ -39,7 +39,6 @@ async def mirror_job_status(
         "authorization": request.headers.get("authorization"),
     }
     all_responses = []
-    errors = 0
     for obj in objects.definitions:
         # ensure path ends with '$' as per ActiveBatch requirement
         # see Introduction section of https://fcvmpdactbapp01.hpsj.com/activebatch/api/help/index#section/Introduction
@@ -71,9 +70,6 @@ async def mirror_job_status(
             method="PUT", path=f"objects/{path}/status", request=dynamic_request
         )
 
-        if response.status_code != 200:
-            errors += 1
-
         # append each response detail to the list
         all_responses.append(
             MirrorJobDefinitionsItemResponse(
@@ -89,10 +85,7 @@ async def mirror_job_status(
         )
 
     # construct a batch response object
-    summary = f"Mirroring completed with {errors} error(s)"
-    batch_response = MirrorJobDefinitionsBatchResponse(
-        results=all_responses, message=summary
-    )
+    batch_response = MirrorJobDefinitionsBatchResponse(results=all_responses)
 
     # write the batch response to a log file using the precalculated batch id
     # TODO(@agenovia) this is a placeholder; use proper logging library
@@ -157,17 +150,17 @@ async def get_plan_logs(templateId: int, request: Request):
 
     try:
         json_info = json.loads(info.body.decode("utf-8"))
-        is_plan = json_info.get("type") == "plan"
     except json.JSONDecodeError:
         raise HTTPException(
             status_code=500,
             detail="Error decoding JSON response from ActiveBatch.",
         )
 
-    if not is_plan:
+    object_type = json_info.get("type")
+    if not object_type == "plan":
         raise HTTPException(
             status_code=400,
-            detail=f"The provided ID is of type '{json_info.get('type')}'. Expected type 'plan'.",
+            detail=f"The provided ID is of type '{object_type}'. Expected type 'plan'.",
         )
 
     # if is_plan, then we need to:

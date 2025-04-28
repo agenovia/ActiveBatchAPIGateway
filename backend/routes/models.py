@@ -53,9 +53,9 @@ class JobLogsList(Keyed):
         startDate = datetime.fromisoformat(self.startDate)
         endDate = datetime.fromisoformat(self.endDate)
 
-        assert startDate < datetime.now(), "from_datetime cannot be in the future"
+        assert startDate < datetime.now(), "startDate cannot be in the future"
 
-        assert startDate < endDate, "from_datetime must be before to_datetime"
+        assert startDate < endDate, "startDate must be before endDate"
 
         assert self.pageSize > 0, "pageSize must be greater than 0"
 
@@ -91,9 +91,8 @@ class MirrorJobDefinitionsItemResponse(BaseConfig):
 # Model for the final aggregated response
 class MirrorJobDefinitionsBatchResponse(BaseConfig):
     timestamp: datetime = Field(default=None)
-    # _timestamp: datetime = Field(default_factory=datetime.now, serialization_alias="timestamp")
     batch_id: str = Field(default=None)
-    message: str
+    message: str = Field(default=None)
     count: int = Field(default=0)
     results: List[MirrorJobDefinitionsItemResponse]
     _timestamp = datetime.now()
@@ -102,3 +101,14 @@ class MirrorJobDefinitionsBatchResponse(BaseConfig):
         self.timestamp = self._timestamp
         self.batch_id = self._timestamp.strftime(r"%Y%m%d%H%M%S%f")
         self.count = len(self.results)
+        self.message = f"Mirroring completed with {self.error_count()} error(s)"
+
+    def error_count(self) -> int:
+        """
+        Returns the number of errors in the batch response.
+        """
+        count = 0
+        for i in self.results:
+            if not i.succeeded:
+                count += 1
+        return count
