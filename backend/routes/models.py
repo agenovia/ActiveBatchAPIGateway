@@ -1,6 +1,8 @@
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
+import pytz
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -112,3 +114,51 @@ class MirrorJobDefinitionsBatchResponse(BaseConfig):
             if not i.succeeded:
                 count += 1
         return count
+
+
+class LastRunResponse(BaseConfig):
+    """
+    Model for the last run response.
+    """
+
+    templateId: Union[str, int]
+    instanceId: Optional[int] = None
+    startTime: Optional[str] = None
+    endTime: Optional[str] = None
+    status: Optional[str] = None
+    log: Optional[str] = None
+    log_likely_has_errors: bool = False
+
+    def convert_to_local(self, dt: str) -> str:
+        """
+        Converts a datetime string to a local datetime string.
+        """
+        try:
+            _dt = datetime.strptime(dt, "%Y-%m-%dT%H:%M:%S.%f")
+            _dt = _dt.replace(tzinfo=pytz.utc)
+
+            # Convert to local timezone (e.g., Pacific Time)
+            local_tz = pytz.timezone("America/Los_Angeles")
+            local_dt = _dt.astimezone(local_tz)
+
+            return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            # If the datetime string is invalid, return None
+            return None
+
+    def log_contains_errors(self) -> bool:
+        """
+        Checks if the log likely contains errors based on the status.
+        """
+        reg = re.compile(r"error|failed|exception", re.IGNORECASE)
+        if len(reg.findall(self.log or "")) > 0:
+            return True
+        return False
+
+    def model_post_init(self, __context):
+        if self.startTime:
+            self.startTime = self.convert_to_local(self.startTime)
+        if self.endTime:
+            self.endTime = self.convert_to_local(self.endTime)
+        if self.log:
+            self.log_likely_has_errors = self.log_contains_errors()

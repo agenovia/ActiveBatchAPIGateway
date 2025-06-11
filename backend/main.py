@@ -3,11 +3,20 @@ import os
 import dotenv
 from dependencies.authorization import AuthDependency
 from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from middlewares.login import LoginMiddleware
 from routes.user_defined import router as user_defined_router
 from utils.passthrough import Passthrough
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins="*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # load our environment variables
 dotenv.load_dotenv()

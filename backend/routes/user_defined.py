@@ -4,13 +4,18 @@ All custom route logic must go here.
 
 import json
 import os
+from datetime import datetime, timedelta
+from json import JSONDecodeError
 from typing import Annotated, List
 
 import dotenv
+import httpx
+from aiolimiter import AsyncLimiter
 from fastapi import APIRouter, HTTPException, Query, Request
 from routes.models import (
     EnableDependenciesModel,
     JobLogsList,
+    LastRunResponse,
     MirrorJobDefinitionsBatchRequest,
     MirrorJobDefinitionsBatchResponse,
     MirrorJobDefinitionsItemRequest,
@@ -23,6 +28,10 @@ router = APIRouter()
 dotenv.load_dotenv()
 rest_server = os.getenv("ACTIVEBATCH_REST_SERVER")
 passthrough = Passthrough(rest_server=rest_server)
+
+
+# implement a rate-limited gateway API manager
+limiter = AsyncLimiter(max_rate=10, time_period=1)  # 10 requests per second
 
 
 # 1. given a json with path and enable status, match each path's enabled/disabled status to V14 and turn it on
@@ -181,3 +190,76 @@ async def enable_dependencies(key: List[EnableDependenciesModel]):
         - key: The job ID or path.
     """
     return {"message": f"Enabling dependencies for {key}."}
+
+
+@router.get("/last_run")
+async def get_last_run(
+    templateId: Annotated[
+        str, Query(description="Job ID or path to check for next run.")
+    ],
+):
+    """
+    Grabs details from the last run times of a job.
+
+    Algorithm:
+
+    1. Make a call to `/objects/{templateId}` to get the object's status and type.
+    2. Make a call to `/instances?templateId={templateId}&startDate={startDate}&endDate={endDate}` to get past and future instances.
+        - Use a default start date of "2025-01-01T00:00:00Z" to ensure we get all instances.
+        - Set endDate to 45 days in the future to ensure we capture future runs.
+    3. If the instance exists, retrieve its details including start and end times, status, and log.
+
+    Parameters:
+        - key: The job ID or path.
+    """
+    _default_startdate = "2025-01-01T00:00:00Z"
+    _default_enddate = (datetime.now() + timedelta(days=90)).isoformat()
+    # print(_default_enddate)
+
+    # 1. make a call to /instances?templateId={templateId}&startDate={startDate}&endDate={endDate}
+    async with httpx.AsyncClient() as client:
+        instances = await client.get(
+            "http://localhost:42000/instances",
+            params={
+                "templateId": templateId,
+                "startDate": _default_startdate,
+                # "endDate": datetime.now().isoformat(),
+            },
+        )
+
+    # response.raise_for_status()  # Ensure we raise an error for bad responses
+    try:
+        ret = instances.json()[0]
+
+    except (JSONDecodeError, IndexError, KeyError):
+        return LastRunResponse(
+            startTime=None,
+            endTime=None,
+            status=f"Not run since {_default_startdate}",
+            instanceId=None,
+            log=None,
+            templateId=templateId,
+        )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            log = await client.get(
+                f"http://localhost:42000/instances/{ret['key']['id']}/log",
+            )
+        return LastRunResponse(
+            startTime=ret["beginExecutionTime"],
+            endTime=ret["endExecutionTime"],
+            status=ret["state"],
+            instanceId=ret["key"]["id"],
+            log=log.json()["content"],
+            templateId=templateId,
+        )
+    except (JSONDecodeError, IndexError, KeyError):
+        return LastRunResponse(
+            startTime=ret["beginExecutionTime"],
+            endTime=ret["endExecutionTime"],
+            status=ret["state"],
+            instanceId=ret["key"]["id"],
+            log=None,
+            templateId=templateId,
+        )
