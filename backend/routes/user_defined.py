@@ -14,8 +14,8 @@ from aiolimiter import AsyncLimiter
 from fastapi import APIRouter, HTTPException, Query, Request
 from routes.models import (
     EnableDependenciesModel,
+    InstanceRunResponse,
     JobLogsList,
-    LastRunResponse,
     MirrorJobDefinitionsBatchRequest,
     MirrorJobDefinitionsBatchResponse,
     MirrorJobDefinitionsItemRequest,
@@ -213,26 +213,19 @@ async def get_last_run(
         - key: The job ID or path.
     """
     _default_startdate = "2025-01-01T00:00:00Z"
-    _default_enddate = (datetime.now() + timedelta(days=90)).isoformat()
-    # print(_default_enddate)
 
-    # 1. make a call to /instances?templateId={templateId}&startDate={startDate}&endDate={endDate}
     async with httpx.AsyncClient() as client:
         instances = await client.get(
             "http://localhost:42000/instances",
             params={
                 "templateId": templateId,
                 "startDate": _default_startdate,
-                # "endDate": datetime.now().isoformat(),
             },
         )
 
-    # response.raise_for_status()  # Ensure we raise an error for bad responses
-    try:
-        ret = instances.json()[0]
-
-    except (JSONDecodeError, IndexError, KeyError):
-        return LastRunResponse(
+    # 204 means no instances found, but the object is valid
+    if instances.status_code == 204:
+        return InstanceRunResponse(
             startTime=None,
             endTime=None,
             status=f"Not run since {_default_startdate}",
@@ -241,12 +234,18 @@ async def get_last_run(
             templateId=templateId,
         )
 
+    # 404 means the object does not exist
+    if instances.status_code == 404:
+        return instances.json()
+
+    ret = instances.json()[0]
+
     try:
         async with httpx.AsyncClient() as client:
             log = await client.get(
                 f"http://localhost:42000/instances/{ret['key']['id']}/log",
             )
-        return LastRunResponse(
+        return InstanceRunResponse(
             startTime=ret["beginExecutionTime"],
             endTime=ret["endExecutionTime"],
             status=ret["state"],
@@ -255,7 +254,7 @@ async def get_last_run(
             templateId=templateId,
         )
     except (JSONDecodeError, IndexError, KeyError):
-        return LastRunResponse(
+        return InstanceRunResponse(
             startTime=ret["beginExecutionTime"],
             endTime=ret["endExecutionTime"],
             status=ret["state"],
@@ -263,3 +262,63 @@ async def get_last_run(
             log=None,
             templateId=templateId,
         )
+
+
+@router.get("/next_run")
+async def get_next_run(
+    templateId: Annotated[
+        str, Query(description="Job ID or path to check for next run.")
+    ],
+):
+    """
+    Grabs details from the last run times of a job.
+
+    Algorithm:
+
+    1. Make a call to `/objects/{templateId}` to get the object's status and type.
+    2. Make a call to `/instances?templateId={templateId}&startDate={startDate}&endDate={endDate}` to get past and future instances.
+        - Use a default start date of "2025-01-01T00:00:00Z" to ensure we get all instances.
+        - Set endDate to 45 days in the future to ensure we capture future runs.
+    3. If the instance exists, retrieve its details including start and end times, status, and log.
+
+    Parameters:
+        - key: The job ID or path.
+    """
+    _default_enddate = (datetime.now() + timedelta(days=45)).isoformat()
+    print(_default_enddate)
+
+    async with httpx.AsyncClient() as client:
+        instances = await client.get(
+            "http://localhost:42000/instances",
+            params={
+                "templateId": templateId,
+                "endDate": _default_enddate,
+                "states": "notRun",
+                "pageSize": 1000,
+                "oldestFirst": True,  # to get the next run first
+            },
+        )
+
+    # 204 means no instances found, but the object is valid
+    if instances.status_code == 204:
+        return InstanceRunResponse(
+            startTime=None,
+            endTime=None,
+            status=f"No planned runs from now til {_default_enddate}",
+            instanceId=None,
+            log=None,
+            templateId=templateId,
+        )
+
+    # 404 means the object does not exist
+    if instances.status_code == 404:
+        return instances.json()
+
+    return InstanceRunResponse(
+        startTime=instances.json()[0]["beginExecutionTime"],
+        endTime=instances.json()[0]["endExecutionTime"],
+        status=instances.json()[0]["state"],
+        instanceId=instances.json()[0]["key"]["id"],
+        log=None,
+        templateId=templateId,
+    )

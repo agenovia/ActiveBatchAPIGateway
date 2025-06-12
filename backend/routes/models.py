@@ -116,7 +116,7 @@ class MirrorJobDefinitionsBatchResponse(BaseConfig):
         return count
 
 
-class LastRunResponse(BaseConfig):
+class InstanceRunResponse(BaseConfig):
     """
     Model for the last run response.
     """
@@ -127,7 +127,12 @@ class LastRunResponse(BaseConfig):
     endTime: Optional[str] = None
     status: Optional[str] = None
     log: Optional[str] = None
-    log_likely_has_errors: bool = False
+    log_contains_triggerwords: bool = Field(
+        default=False, description="True when log matches any triggerword", init=False
+    )
+    anomalous: bool = Field(
+        default=False, description="Anomalous status of the job run", init=False
+    )
 
     def convert_to_local(self, dt: str) -> str:
         """
@@ -142,16 +147,25 @@ class LastRunResponse(BaseConfig):
             local_dt = _dt.astimezone(local_tz)
 
             return local_dt.strftime("%Y-%m-%d %H:%M:%S")
-        except ValueError:
+        except (ValueError, OverflowError):
             # If the datetime string is invalid, return None
             return None
 
-    def log_contains_errors(self) -> bool:
+    def _log_contain_triggerwords(self) -> bool:
         """
-        Checks if the log likely contains errors based on the status.
+        Checks if the log contains the set of triggerwords.
         """
-        reg = re.compile(r"error|failed|exception", re.IGNORECASE)
+        __triggerwords = {"error", "failed", "exception"}
+        reg = re.compile("|".join([s.strip() for s in __triggerwords]), re.IGNORECASE)
         if len(reg.findall(self.log or "")) > 0:
+            return True
+        return False
+
+    def _is_anomalous(self) -> bool:
+        """
+        Determines if the job run is anomalous based on its status.
+        """
+        if self.status in ["succeeded"] and self.log_contains_triggerwords:
             return True
         return False
 
@@ -161,4 +175,5 @@ class LastRunResponse(BaseConfig):
         if self.endTime:
             self.endTime = self.convert_to_local(self.endTime)
         if self.log:
-            self.log_likely_has_errors = self.log_contains_errors()
+            self.log_contains_triggerwords = self._log_contain_triggerwords()
+            self.anomalous = self._is_anomalous()
