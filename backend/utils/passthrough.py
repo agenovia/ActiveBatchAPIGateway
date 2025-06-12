@@ -3,7 +3,7 @@ import logging
 from json import JSONDecodeError
 
 import httpx
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -53,10 +53,12 @@ class Passthrough:
                 # If parsing fails, fallback to raw response text or None
                 response_content = response.text or None
 
-            # Return a JSONResponse with the parsed content or fallback
-            return JSONResponse(
-                content=response_content, status_code=response.status_code
-            )
-
+            if response.status_code != 204:
+                return JSONResponse(
+                    content=response_content, status_code=response.status_code
+                )
+            else:
+                # For 204 No Content, return an empty Response
+                return Response(status_code=204)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
