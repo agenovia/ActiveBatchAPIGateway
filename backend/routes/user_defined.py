@@ -322,3 +322,34 @@ async def get_next_run(
         log=None,
         templateId=templateId,
     )
+
+
+@router.get("/get_triggers")
+async def get_triggers(
+    request: Request,
+    templateId: Annotated[
+        str, Query(description="Job ID or path to check for next run.")
+    ],
+):
+    """
+    Get all triggers.
+    """
+    templateId = templateId.strip()
+    if templateId.isdigit():
+        # if templateId is a number, we assume it's an ID
+        path = f"objects/{templateId}/eventTriggers"
+    else:
+        # if templateId is a path, we assume it's a path
+        path = f"objects/{templateId}$/eventTriggers"
+
+    response = await passthrough.handle_passthrough(
+        method="GET", path=path, request=request
+    )
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"Error fetching triggers: {response.body.decode('utf-8')}",
+        )
+
+    return json.loads(response.body.decode("utf-8"))
