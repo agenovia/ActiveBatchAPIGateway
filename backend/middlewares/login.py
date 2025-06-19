@@ -1,3 +1,5 @@
+import time
+
 import httpx
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -14,10 +16,10 @@ class LoginMiddleware(BaseHTTPMiddleware):
         self.username = username
         self.password = password
         self.jss_server = jss_server
+        self._token = None
+        self._token_expiry = 0
 
-    async def dispatch(self, request: Request, call_next):
-        # login with verify False until we can install certificates on this server
-        # TODO(@agenovia): possibl use .env file to provide path to certificat and use that
+    async def _get_token(self):
         async with httpx.AsyncClient(verify=False) as client:
             login_response = await client.post(
                 f"{self.rest_server}/login",
@@ -27,14 +29,19 @@ class LoginMiddleware(BaseHTTPMiddleware):
                     "jobScheduler": self.jss_server,
                 },
             )
-
         if login_response.status_code != 200:
             raise HTTPException(
                 status_code=401,
                 detail="Proxy server credentials are invalid. (@agenovia)",
             )
-
         token = login_response.json().get("token")
+        self._token = token
+        self._token_expiry = time.time() + (59 * 60)  # 59 minutes from now
+
+    async def dispatch(self, request: Request, call_next):
+        # Refresh token if expired or not set
+        if not self._token or time.time() > self._token_expiry:
+            await self._get_token()
 
         # if a token was previously provided, we use this as our superuser_key and is used only to authenticate internally within the gateway
         if old_token := request.headers.get("Authorization"):
@@ -45,7 +52,7 @@ class LoginMiddleware(BaseHTTPMiddleware):
         # get the existing headers
         headers = dict(request.scope["headers"])
         # update with the auth token
-        headers[b"authorization"] = f"Bearer {token}".encode("utf-8")
+        headers[b"authorization"] = f"Bearer {self._token}".encode("utf-8")
         headers[b"content-type"] = b"application/json"
 
         # update the scope

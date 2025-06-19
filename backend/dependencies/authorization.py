@@ -6,10 +6,12 @@ class AuthDependency:
         self.superuser_key = superuser_key
 
     async def __call__(self, request: Request):
-        # Extract the token from the Authorization header
-        # token = request.headers.get("Authorization").split(" ")[1].strip()
+        # our login middleware mutates the request header and the superuser_key is stored in the request state
+        # if the superuser_key is not set, we raise an HTTPException
         token = request.state.superuser_key
 
         # Validate the token
-        if not token or token != self.superuser_key.strip():
-            raise HTTPException(status_code=401, detail="Invalid API key")
+        if not token:
+            raise HTTPException(status_code=401, detail="[Gateway] API key required")
+        elif token != self.superuser_key.strip():
+            raise HTTPException(status_code=401, detail="[Gateway] Mismatched API key")
