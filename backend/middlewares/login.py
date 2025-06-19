@@ -27,19 +27,21 @@ class LoginMiddleware(BaseHTTPMiddleware):
                     "username": self.username,
                     "password": self.password,
                     "jobScheduler": self.jss_server,
+                    "validFor": "000.01:00:00",  # the format is ddd.hh:mm:ss (days.hours:minutes:seconds)
                 },
             )
         if login_response.status_code != 200:
             raise HTTPException(
                 status_code=401,
-                detail="Proxy server credentials are invalid. (@agenovia)",
+                detail="[Gateway] Gateway server credentials are invalid. Please ensure the account provided in the .env file is allowed to login (@agenovia)",
             )
         token = login_response.json().get("token")
         self._token = token
+        # we refresh the token before the hour is up, so we set the expiry to 59 minutes from now
         self._token_expiry = time.time() + (59 * 60)  # 59 minutes from now
 
     async def dispatch(self, request: Request, call_next):
-        # Refresh token if expired or not set
+        # refresh token if expired or not set
         if not self._token or time.time() > self._token_expiry:
             await self._get_token()
 
